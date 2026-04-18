@@ -8,11 +8,9 @@ jobs:
 
     steps:
       - name: Checkout Pacman Source
-        uses: actions/checkout@v4
-        with:
-          repository: 'archlinux/pacman'
-          ref: 'master'
-
+  run: |
+    git clone --depth=1 https://gitlab.archlinux.org/pacman/pacman.git .
+  
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
