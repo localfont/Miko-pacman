@@ -8,7 +8,8 @@ jobs:
 
     steps:
       - name: Checkout Pacman Source
-         run: | git clone --depth=1 https://gitlab.archlinux.org/pacman/pacman.git .
+        run: |
+          git clone --depth=1 https://gitlab.archlinux.org/pacman/pacman.git .
 
       - name: Install Build Dependencies
         run: |
