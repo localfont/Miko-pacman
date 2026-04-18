@@ -1,0 +1,65 @@
+name: Build Pacman for MikoOS
+
+on: [push, workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Pacman Source
+        uses: actions/checkout@v4
+        with:
+          repository: 'archlinux/pacman'
+          ref: 'master'
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build libarchive-dev \
+          libcurl4-openssl-dev libssl-dev pkg-config gettext
+
+      - name: Setup Meson
+        run: |
+          meson setup builddir \
+            -Dprefix=/usr \
+            -Dsysconfdir=/etc \
+            -Dlocalstatedir=/var \
+            -Ddoc=disabled \
+            -Ddoxygen=disabled \
+            -Dscriptlet-shell=/bin/sh \
+            -Dcrypto=openssl
+
+      - name: Compile
+        run: ninja -C builddir
+
+      - name: Install to Staging Area
+        run: |
+          DESTDIR=$GITHUB_WORKSPACE/miko-pacman ninja -C builddir install
+          rm -rf $GITHUB_WORKSPACE/miko-pacman/usr/share/man
+
+      - name: Get Version
+        id: version
+        run: |
+          VERSION=$(grep "^version" meson.build | head -1 | grep -oP "[\d.]+")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Pacman version: $VERSION"
+
+      - name: Create Tarball
+        run: |
+          cd $GITHUB_WORKSPACE
+          tar -czf pacman-amd64-mikoos.tar.gz -C miko-pacman .
+          sha256sum pacman-amd64-mikoos.tar.gz > pacman-amd64-mikoos.tar.gz.sha256
+          echo "=== Build Info ==="
+          echo "Version: ${{ steps.version.outputs.version }}"
+          echo "SHA256:"
+          cat pacman-amd64-mikoos.tar.gz.sha256
+
+      - name: Upload Tarball Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pacman-amd64-mikoos
+          path: |
+            pacman-amd64-mikoos.tar.gz
+            pacman-amd64-mikoos.tar.gz.sha256
+          retention-days: 30
