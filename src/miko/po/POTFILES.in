@@ -1,0 +1,26 @@
+# List of source files with translatable strings
+# If a file is commented out, it is because it shouldn't have any
+# translatable strings
+
+# miko frontend source files
+src/miko/callback.c
+src/miko/check.c
+src/miko/conf.c
+src/miko/database.c
+src/miko/deptest.c
+src/miko/files.c
+#src/miko/ini.c
+src/miko/package.c
+src/miko/miko.c
+src/miko/query.c
+src/miko/remove.c
+src/miko/sighandler.c
+src/miko/sync.c
+src/miko/upgrade.c
+src/miko/util.c
+#src/miko/util-common.c
+
+# utility files
+src/miko/miko-conf.c
+src/util/testpkg.c
+src/util/vercmp.c
