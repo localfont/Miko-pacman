@@ -1,58 +1,315 @@
-name: Build Miko Package Manager
+project('miko',
+        'c',
+        version : '7.1.0',
+        license : 'GPLv2+',
+        default_options : [
+          'c_std=gnu99',
+          'prefix=/usr',
+          'sysconfdir=/etc',
+          'localstatedir=/var',
+        ],
+        meson_version : '>= 0.61')
 
-on:
-  workflow_dispatch:
-  push:
-    branches: [main]
+libalpm_version = '16.0.1'
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+cc = meson.get_compiler('c')
 
-      - name: Install Build Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential meson ninja-build \
-            libarchive-dev libcurl4-openssl-dev \
-            libssl-dev pkg-config
+# commandline options
+PREFIX = get_option('prefix')
+DATAROOTDIR = join_paths(PREFIX, get_option('datarootdir'))
+SYSCONFDIR = join_paths(PREFIX, get_option('sysconfdir'))
+LOCALSTATEDIR = join_paths(PREFIX, get_option('localstatedir'))
+LOCALEDIR = join_paths(PREFIX, get_option('localedir'))
+ROOTDIR = get_option('root-dir')
+BINDIR = join_paths(PREFIX, get_option('bindir'))
+MANDIR = join_paths(PREFIX, get_option('mandir'))
+BUILDSCRIPT = get_option('buildscript')
+LIBMAKEPKGDIR = join_paths(PREFIX, DATAROOTDIR, 'makepkg')
+PKGDATADIR = join_paths(PREFIX, DATAROOTDIR, meson.project_name())
+KEYRINGDIR = join_paths(PREFIX, DATAROOTDIR, get_option('keyringdir'))
 
-      - name: Check meson.build exists
-        run: |
-          ls -la
-          cat meson.build | head -5
+PYTHON = import('python').find_installation('python3')
+LDCONFIG = get_option('ldconfig')
+MESON_MAKE_SYMLINK = join_paths(meson.project_source_root(), 'build-aux/meson-make-symlink.sh')
 
-      - name: Configure
-        run: |
-          meson setup build \
-            --prefix=/usr \
-            --sysconfdir=/etc \
-            --localstatedir=/var \
-            -Ddoc=disabled \
-            -Dgpgme=disabled \
-            -Dscriptlet-shell=/bin/sh
+BASH = find_program('bash4', 'bash')
+if BASH.found()
+  bash_version = run_command(BASH, '-c', 'IFS=.; echo "${BASH_VERSINFO[*]:0:3}"', check: true).stdout()
 
-      - name: Build
-        run: ninja -C build
+  have_bash = bash_version.version_compare('>= 4.4.0')
+endif
+if not have_bash
+  error('bash >= 4.4.0 is required for miko scripts.')
+endif
 
-      - name: Show Built Binaries
-        run: find build -type f -executable | sort
+bashcompletion = dependency('bash-completion', required : false)
+if bashcompletion.found()
+  BASHCOMPDIR = bashcompletion.get_variable(pkgconfig: 'completionsdir')
+else
+  BASHCOMPDIR = join_paths(DATAROOTDIR, 'bash-completion/completions')
+endif
 
-      - name: Package
-        run: |
-          mkdir -p dist/usr/bin dist/etc
-          MIKO_BIN=$(find build -type f -executable -name "miko" | head -1)
-          echo "Binary: $MIKO_BIN"
-          cp "$MIKO_BIN" dist/usr/bin/miko
+if get_option('use-git-version')
+  PACKAGE_VERSION = run_command(
+      find_program('git'),
+      'describe',
+      '--abbrev=4',
+      '--dirty',
+      check: true).stdout().strip().strip('v')
+else
+  PACKAGE_VERSION = meson.project_version()
+endif
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: miko-${{ github.sha }}
-          path: dist/18n = import('i18n')
+conf = configuration_data()
+conf.set('_GNU_SOURCE', true)
+conf.set_quoted('PACKAGE',  meson.project_name())
+conf.set_quoted('PACKAGE_VERSION', PACKAGE_VERSION)
+conf.set_quoted('LOCALEDIR', LOCALEDIR)
+conf.set_quoted('SCRIPTLET_SHELL', get_option('scriptlet-shell'))
+conf.set_quoted('LDCONFIG', LDCONFIG)
+conf.set_quoted('LIB_VERSION', libalpm_version)
+conf.set_quoted('SYSHOOKDIR', join_paths(DATAROOTDIR, 'libalpm/hooks/'))
+conf.set_quoted('CONFFILE', join_paths(SYSCONFDIR, 'miko.conf'))
+conf.set_quoted('DBPATH', join_paths(LOCALSTATEDIR, 'lib/miko/'))
+conf.set_quoted('GPGDIR', join_paths(SYSCONFDIR, 'miko.d/gnupg/'))
+conf.set_quoted('LOGFILE', join_paths(LOCALSTATEDIR, 'log/miko.log'))
+conf.set_quoted('CACHEDIR', join_paths(LOCALSTATEDIR, 'cache/miko/pkg/'))
+conf.set_quoted('HOOKDIR', join_paths(SYSCONFDIR, 'miko.d/hooks/'))
+conf.set_quoted('ROOTDIR', ROOTDIR)
+
+libintl = dependency('', required: false)
+if get_option('i18n')
+  libintl = dependency('intl', static: get_option('buildstatic'))
+  conf.set('ENABLE_NLS', 1)
+endif
+
+# dependencies
+libarchive = dependency('libarchive',
+                        version : '>=3.0.0',
+                        static : get_option('buildstatic'))
+if libarchive.version().version_compare('>=3.6.0')
+  bsdtar_no_read_sparse = '--no-read-sparse'
+else
+  bsdtar_no_read_sparse = ''
+endif
+
+libcurl = dependency('libcurl',
+                     version : '>=7.55.0',
+                     required : get_option('curl'),
+                     static : get_option('buildstatic'))
+conf.set('HAVE_LIBCURL', libcurl.found())
+
+needed_gpgme_version = '>=1.18.0'
+gpgme = dependency('gpgme',
+                   version : needed_gpgme_version,
+                   required : get_option('gpgme'),
+                   static : get_option('buildstatic'),
+                   not_found_message : 'gpgme @0@ is needed for GPG signature support'.format(needed_gpgme_version))
+conf.set('HAVE_LIBGPGME', gpgme.found())
+
+want_crypto = get_option('crypto')
+if want_crypto == 'openssl'
+  libcrypto = dependency('libcrypto', static : get_option('buildstatic'),
+    not_found_message : 'openssl support requested but not found')
+  crypto_provider = libcrypto
+  conf.set10('HAVE_LIBSSL', true)
+elif want_crypto == 'nettle'
+  libnettle = dependency('nettle', static : get_option('buildstatic'),
+    not_found_message : 'nettle support requested but not found')
+  crypto_provider = libnettle
+  conf.set10('HAVE_LIBNETTLE', true)
+else
+  error('unhandled crypto value @0@'.format(want_crypto))
+endif
+
+libseccomp = dependency('libseccomp',
+                        static : get_option('buildstatic'),
+                        required : false)
+conf.set('HAVE_LIBSECCOMP', libseccomp.found())
+foreach header : [
+    'linux/landlock.h',
+    'mntent.h',
+    'sys/mnttab.h',
+    'sys/mount.h',
+    'sys/param.h',
+    'sys/prctl.h',
+    'sys/statvfs.h',
+    'sys/types.h',
+    'sys/ucred.h',
+    'termios.h',
+  ]
+  if cc.has_header(header)
+    conf.set('HAVE_' + header.underscorify().to_upper(), true)
+  endif
+endforeach
+
+foreach sym : [
+    'getmntent',
+    'getmntinfo',
+    'strndup',
+    'strnlen',
+    'strsep',
+    'swprintf',
+    'tcflush',
+  ]
+  have = cc.has_function(sym, args : '-D_GNU_SOURCE')
+  if have
+    conf.set10('HAVE_' + sym.to_upper(), have)
+  endif
+endforeach
+
+foreach member : [
+    ['struct stat', 'st_blksize', '''#include <sys/stat.h>'''],
+    ['struct statvfs', 'f_flag', '''#include <sys/statvfs.h>'''],
+    ['struct statfs', 'f_flags', '''#include <sys/param.h>
+                                    #include <sys/mount.h>'''],
+  ]
+  have = cc.has_member(member[0], member[1], prefix : member[2])
+  conf.set('HAVE_' + '_'.join([member[0], member[1]]).underscorify().to_upper(), have)
+endforeach
+
+foreach type : [
+    # type       # program prefix              # fallback
+    ['mode_t',   '''#include <sys/types.h>''', 'unsigned int'],
+    ['uid_t',    '''#include <sys/types.h>''', 'unsigned int'],
+    ['off_t',    '''#include <sys/types.h>''', 'signed int'],
+    ['pid_t',    '''#include <sys/types.h>''', 'signed int'],
+    ['size_t',   '''#include <sys/types.h>''', 'unsigned int'],
+    ['ssize_t',  '''#include <sys/types.h>''', 'signed int'],
+    ['int64_t',  '''#include <stdint.h>''',    'signed long int'],
+  ]
+  if not cc.has_type(type[0], prefix: type[1])
+    conf.set(type[0], type[2])
+  endif
+endforeach
+
+
+if conf.has('HAVE_GETMNTINFO')
+  if cc.compiles('''
+      #include <sys/types.h>
+      #include <sys/statvfs.h>
+
+      void func() {
+        struct statvfs *buf;
+        getmntinfo(&buf, 0);
+      }
+      ''')
+      conf.set('FSSTATSTYPE', 'struct statvfs')
+  else
+      conf.set('FSSTATSTYPE', 'struct statfs')
+  endif
+elif conf.has('HAVE_STRUCT_STATVFS_F_FLAG')
+  conf.set('FSSTATSTYPE', 'struct statvfs')
+elif conf.has('HAVE_STRUCT_STATFS_F_FLAGS')
+  conf.set('FSSTATSTYPE', 'struct statfs')
+endif
+
+if get_option('debug')
+  extra_cflags = [
+    '-pedantic',
+    '-Wcast-align',
+    '-Wclobbered',
+    '-Wempty-body',
+    '-Wfloat-equal',
+    '-Wformat-nonliteral',
+    '-Wformat-security',
+    '-Wignored-qualifiers',
+    '-Wimplicit-fallthrough',
+    '-Winit-self',
+    '-Wlogical-op',
+    '-Wmissing-declarations',
+    '-Wmissing-field-initializers',
+    '-Wmissing-parameter-type',
+    '-Wmissing-prototypes',
+    '-Wold-style-declaration',
+    '-Woverride-init',
+    '-Wpointer-arith',
+    '-Wredundant-decls',
+    '-Wshadow',
+    '-Wsign-compare',
+    '-Wstrict-aliasing',
+    '-Wstrict-overflow=5',
+    '-Wstrict-prototypes',
+    '-Wtype-limits',
+    '-Wuninitialized',
+    '-Wunused-but-set-parameter',
+    '-Wunused-parameter',
+    '-Wunused-result',
+    '-Wwrite-strings',
+  ]
+  add_project_arguments(cc.get_supported_arguments(extra_cflags), language : 'c')
+
+  conf.set('miko_DEBUG', 1)
+endif
+
+config_h = configure_file(
+        output : 'config.h',
+        configuration : conf)
+add_project_arguments('-include', 'config.h', language : 'c')
+
+filecmd = 'file'
+inodecmd = 'stat -c \'%i %n\''
+strip_binaries = '--strip-all'
+strip_shared = '--strip-unneeded'
+strip_static = '--strip-debug'
+
+file_seccomp = get_option('file-seccomp')
+# meson-git has find_program('file', required: false, version: '>=5.38')
+filever = run_command('sh', '-c', 'file --version | sed -n "s/^file-\(.*\)/\\1/p"', check: true).stdout()
+if file_seccomp.enabled() or ( file_seccomp.auto() and filever.version_compare('>= 5.38') )
+  filecmd = 'file -S'
+endif
+
+os = host_machine.system()
+if os.startswith('darwin')
+  inodecmd = '/usr/bin/stat -f \'%i %N\''
+  strip_binaries = ''
+  strip_shared = '-s'
+  strip_static = '-s'
+elif os.contains('bsd') or os == 'dragonfly'
+  inodecmd = 'stat -f \'%i %N\''
+endif
+
+chost = run_command(cc, '-dumpmachine', check: true).stdout().strip()
+carch = chost.split('-')[0]
+
+# annoyingly, we have to maintain two sets of configuration_data which is
+# largely identical, but which distinguishes between quoting needs.
+substs = configuration_data()
+substs.set('CARCH', carch)
+substs.set('CHOST', chost)
+substs.set('PKGEXT', get_option('pkg-ext'))
+substs.set('SRCEXT', get_option('src-ext'))
+substs.set('ROOTDIR', ROOTDIR)
+substs.set('LOCALEDIR', LOCALEDIR)
+substs.set('sysconfdir', SYSCONFDIR)
+substs.set('localstatedir', LOCALSTATEDIR)
+substs.set('PKGDATADIR', PKGDATADIR)
+substs.set('KEYRINGDIR', KEYRINGDIR)
+substs.set('PREFIX', PREFIX)
+substs.set('BASH', BASH.full_path())
+substs.set('PACKAGE_VERSION', PACKAGE_VERSION)
+substs.set('PACKAGE_NAME', meson.project_name())
+substs.set('BUILDSCRIPT', BUILDSCRIPT)
+substs.set('TEMPLATE_DIR', get_option('makepkg-template-dir'))
+substs.set('DEBUGSUFFIX', get_option('debug-suffix'))
+substs.set('INODECMD', inodecmd)
+substs.set('FILECMD', filecmd)
+substs.set('LIBMAKEPKGDIR', LIBMAKEPKGDIR)
+substs.set('STRIP_BINARIES', strip_binaries)
+substs.set('STRIP_SHARED', strip_shared)
+substs.set('STRIP_STATIC', strip_static)
+substs.set('BSDTAR_NO_READ_SPARSE', bsdtar_no_read_sparse)
+
+subdir('lib/libalpm')
+subdir('src/common')
+subdir('src/miko')
+subdir('src/util')
+subdir('scripts')
+
+# Internationalization
+if get_option('i18n')
+  i18n = import('i18n')
   subdir('lib/libalpm/po')
   subdir('src/miko/po')
   subdir('scripts/po')
