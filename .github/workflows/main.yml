@@ -1,0 +1,67 @@
+name: Build Miko Package Manager
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  release:
+    types: [created]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential meson ninja-build \
+            libarchive-dev libcurl4-openssl-dev \
+            libssl-dev pkg-config
+
+      - name: Configure
+        run: |
+          meson setup build \
+            --prefix=/usr \
+            --sysconfdir=/etc \
+            --localstatedir=/var \
+            -Ddoc=disabled \
+            -Dgpgme=disabled \
+            -Dscriptlet-shell=/bin/sh
+
+      - name: Build
+        run: ninja -C build
+
+      - name: Show Built Binaries
+        run: find build -type f -executable | sort
+
+      - name: Package
+        run: |
+          mkdir -p dist/usr/bin
+          mkdir -p dist/etc
+
+          MIKO_BIN=$(find build -type f -executable -name "miko" | head -1)
+          echo "Binary: $MIKO_BIN"
+          cp "$MIKO_BIN" dist/usr/bin/miko
+
+          
+          cat > dist/etc/miko.conf << 'EOF'
+          [options]
+          Architecture = auto
+          SigLevel = Optional TrustAll
+
+          [core]
+          Server = https://mirror.rackspace.com/archlinux/$repo/os/$arch
+
+          [extra]
+          Server = https://mirror.rackspace.com/archlinux/$repo/os/$arch
+          EOF
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: miko-${{ github.sha }}
+          path: dist/
