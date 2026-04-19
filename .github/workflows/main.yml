@@ -64,7 +64,12 @@ jobs:
           done
 
           
-          find build -name "libalpm.so*" | while read lib; do
+          find build -name "libalpm.so*" -type f | while read lib; do
+            cp "$lib" dist/usr/lib/
+          done
+          
+          
+          find build -name "libalpm.so*" -type l | while read lib; do
             cp -P "$lib" dist/usr/lib/
           done
 
