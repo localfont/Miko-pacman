@@ -1,12 +1,12 @@
 # SOME DESCRIPTIVE TITLE.
-# Copyright (C) YEAR "Pacman Development Team <pacman-dev@archlinux.org>"
-# This file is distributed under the same license as the pacman package.
+# Copyright (C) YEAR "Miko Development Team <miko-dev@mikoos.org>"
+# This file is distributed under the same license as the miko package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
 #
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: pacman\n"
+"Project-Id-Version: miko\n"
 "Report-Msgid-Bugs-To: https://gitlab.archlinux.org/pacman/pacman/-/issues\n"
 "POT-Creation-Date: 2025-11-01 17:34+1000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
@@ -454,7 +454,7 @@ msgstr ""
 
 #: src/pacman/conf.c:905
 #, c-format
-msgid "try running pacman-db-upgrade\n"
+msgid "try running miko-db-upgrade\n"
 msgstr ""
 
 #: src/pacman/conf.c:923
@@ -1770,17 +1770,17 @@ msgstr ""
 
 #: src/pacman/pacman-conf.c:41
 #, c-format
-msgid "pacman-conf - query pacman's configuration file\n"
+msgid "miko-conf - query miko's configuration file\n"
 msgstr ""
 
 #: src/pacman/pacman-conf.c:42
 #, c-format
-msgid "usage:  pacman-conf [options] [<directive>...]\n"
+msgid "usage:  miko-conf [options] [<directive>...]\n"
 msgstr ""
 
 #: src/pacman/pacman-conf.c:43
 #, c-format
-msgid "        pacman-conf (--repo-list|--help|--version)\n"
+msgid "        miko-conf (--repo-list|--help|--version)\n"
 msgstr ""
 
 #: src/pacman/pacman-conf.c:44
@@ -1866,7 +1866,7 @@ msgstr ""
 #: src/util/testpkg.c:56
 #, c-format
 msgid ""
-"Test a pacman package for validity.\n"
+"Test a miko package for validity.\n"
 "\n"
 msgstr ""
 
