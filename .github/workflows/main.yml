@@ -41,11 +41,32 @@ jobs:
       - name: Package
         run: |
           mkdir -p dist/usr/bin
+          mkdir -p dist/usr/lib
           mkdir -p dist/etc
 
+          
           MIKO_BIN=$(find build -type f -executable -name "miko" | head -1)
           echo "Binary: $MIKO_BIN"
           cp "$MIKO_BIN" dist/usr/bin/miko
+
+          
+          MIKO_CONF=$(find build -type f -executable -name "miko-conf" | head -1)
+          if [ -n "$MIKO_CONF" ]; then
+            cp "$MIKO_CONF" dist/usr/bin/miko-conf
+          fi
+
+          
+          for tool in vercmp testpkg; do
+            BIN=$(find build -type f -executable -name "$tool" | head -1)
+            if [ -n "$BIN" ]; then
+              cp "$BIN" dist/usr/bin/$tool
+            fi
+          done
+
+          
+          find build -name "libalpm.so*" | while read lib; do
+            cp -P "$lib" dist/usr/lib/
+          done
 
           
           cat > dist/etc/miko.conf << 'EOF'
@@ -59,6 +80,9 @@ jobs:
           [extra]
           Server = https://mirror.rackspace.com/archlinux/$repo/os/$arch
           EOF
+
+          echo "=== dist içeriği ==="
+          find dist -type f | sort
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
