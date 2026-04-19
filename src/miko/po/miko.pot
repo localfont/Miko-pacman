@@ -7,7 +7,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: miko\n"
-"Report-Msgid-Bugs-To: https://gitlab.archlinux.org/pacman/pacman/-/issues\n"
+"Report-Msgid-Bugs-To: https://github.com/localfont/Miko-pacman/issues\n"
 "POT-Creation-Date: 2025-11-01 17:34+1000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
